@@ -8,19 +8,22 @@ Automated end-to-end tests for **https://evo.dev.theysaid.io/** built with
 3. **Teach AI** — upload a document
 4. **Publish a project + take its survey**
 
-Registration is intentionally **not** automated (it requires manually entering an
-email OTP), per the assessment instructions.
+Account **sign-up** is intentionally **not** automated (it requires a one-time code
+emailed by WorkOS), per the assessment instructions. Signing **in** is email +
+password and is fully automated by `tests/auth.setup.ts`.
 
 > **Auth note:** TheySaid signs in via **AuthKit (WorkOS)** — visiting the app
-> redirects to `*.authkit.app` (email → *Continue* → **email OTP**, or Google /
-> LinkedIn SSO). Because login requires a one-time code from email, the suite
-> captures the session **once** via `npm run auth` (Playwright codegen with
-> `--save-storage`) and every test reuses it through `storageState`. No OTP is
-> ever entered by the tests.
+> redirects to `*.authkit.app`. The sign-in flow is **email → _Continue_ →
+> password → _Sign in_** (Google / LinkedIn SSO are also offered). The suite logs
+> in **once** in `tests/auth.setup.ts` using `THEYSAID_EMAIL` / `THEYSAID_PASSWORD`
+> from `.env`, saves the session to `auth.json`, and every other test reuses it via
+> `storageState`. WorkOS access tokens are short-lived, so each flow spec also calls
+> `ensureLoggedIn()` to transparently re-authenticate if the session expires
+> mid-run. Account sign-up (the email code) is never automated.
 
 ## 🎥 Session recording
-<!-- paste your Google Drive link (set to "Anyone with the link") -->
-**Recording:** `https://drive.google.com/...`  ← *replace with your viewable link*
+<!-- REPLACE the link below with your Google Drive URL, shared as "Anyone with the link". -->
+**Recording:** _TODO — paste Google Drive link here (set sharing to "Anyone with the link")_
 
 ## Architecture
 
@@ -39,19 +42,25 @@ npm install
 npx playwright install --with-deps
 ```
 
-### Authenticate once (gives every test a logged-in session)
+> **Browser:** the config uses your system **Google Chrome** (`channel: 'chrome'`),
+> so `npx playwright install` is optional. To use Playwright's bundled Chromium
+> instead, run `PWTEST_CHANNEL='' npx playwright install chromium` and unset the
+> channel.
 
-Easiest — capture your real session with codegen (do the email OTP by hand once):
+### Authenticate (gives every test a logged-in session)
+
+Copy `.env.example` → `.env` and set your credentials:
 
 ```bash
-npm run auth
-# = playwright codegen --save-storage=auth.json https://evo.dev.theysaid.io/
-# log in in the window that opens, then close it. auth.json is created.
+THEYSAID_EMAIL=you@example.com
+THEYSAID_PASSWORD="your-password"   # quote it — passwords with '#' break dotenv otherwise
 ```
 
-*Or* automate password login (only if the app supports email+password): copy
-`.env.example` → `.env`, set `THEYSAID_EMAIL` / `THEYSAID_PASSWORD`, and the
-setup project logs in for you.
+`tests/auth.setup.ts` then logs in for you (email + password) and saves the session
+to `auth.json`. Every other spec reuses it. No manual step is needed.
+
+> Already have a valid `auth.json`? Run with `REUSE_AUTH=1 npm test` to skip the
+> login setup and reuse the saved session.
 
 ## Run
 

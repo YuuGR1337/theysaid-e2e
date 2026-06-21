@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import 'dotenv/config'; // load THEYSAID_EMAIL / THEYSAID_PASSWORD from .env
 
 /**
  * E2E config for TheySaid (evo.dev.theysaid.io).
@@ -10,29 +11,50 @@ export default defineConfig({
   // up to 4 parallel threads, as the assessment allows
   workers: 4,
   fullyParallel: true,
-  timeout: 60_000,
-  expect: { timeout: 15_000 },
-  retries: 1,
+  // Flows wait on server-side AI generation (20–35s) and AuthKit redirects,
+  // so per-test timeouts are generous. Individual specs raise their own via
+  // test.setTimeout where needed.
+  timeout: 120_000,
+  expect: { timeout: 20_000 },
+  retries: process.env.CI ? 1 : 0,
   reporter: [['html', { open: 'never' }], ['list']],
 
   use: {
-    baseURL: 'https://evo.dev.theysaid.io',
+    baseURL: process.env.BASE_URL || 'https://evo.dev.theysaid.io',
     storageState: 'auth.json',          // produced by the `setup` project below
-    trace: 'on-first-retry',
+    trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
-    actionTimeout: 15_000,
+    actionTimeout: 25_000,
+    navigationTimeout: 60_000,
+    // Use the system-installed Google Chrome so the suite runs without
+    // downloading a Playwright-pinned Chromium build. Override with
+    // PWTEST_CHANNEL='' to fall back to the bundled browser.
+    channel: process.env.PWTEST_CHANNEL ?? 'chrome',
+    launchOptions: { args: ['--no-sandbox'] },
   },
 
   projects: [
-    // 1) auth setup runs first, saves the logged-in session to auth.json
-    { name: 'setup', testMatch: /auth\.setup\.ts/ },
+    // 1) auth setup runs first, saves the logged-in session to auth.json.
+    //    It must start WITHOUT storageState (auth.json doesn't exist yet).
+    //    Skipped automatically when REUSE_AUTH=1 (an auth.json already exists).
+    ...(process.env.REUSE_AUTH
+      ? []
+      : [{
+          name: 'setup',
+          testMatch: /auth\.setup\.ts/,
+          use: {
+            ...devices['Desktop Chrome'],
+            channel: process.env.PWTEST_CHANNEL ?? 'chrome',
+            storageState: undefined,
+          },
+        }]),
 
-    // 2) the real tests depend on setup and reuse its session
+    // 2) the real tests reuse the saved session.
     {
       name: 'chromium',
-      dependencies: ['setup'],
-      use: { ...devices['Desktop Chrome'] },
+      dependencies: process.env.REUSE_AUTH ? [] : ['setup'],
+      use: { ...devices['Desktop Chrome'], channel: process.env.PWTEST_CHANNEL ?? 'chrome' },
     },
   ],
 });

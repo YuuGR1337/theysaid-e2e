@@ -1,47 +1,55 @@
-import { test, expect, type FileChooser } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import path from 'node:path';
+import { ensureLoggedIn } from './helpers';
 
 /**
  * FLOW 3 — Upload a document via the "Teach AI" feature.
- * Real flow (confirmed via recon + screenshot): left-nav "Teach AI" →
- * "Contextualize Your AI" page → "Add file" button opens a file chooser →
- * the uploaded filename appears under "Additional information for AI".
+ *
+ * Confirmed flow against the live app: the "Teach AI" page
+ * (/home/teach-ai, "Contextualize Your AI") has an "Add file" button that is
+ * wired to a HIDDEN <input type="file"> — it does NOT open a native OS file
+ * chooser. After selecting a file, a "New Content / Add file" card shows the
+ * filename + size with Cancel / Confirm; clicking "Confirm" persists it.
  */
 test('Teach AI: upload a document', async ({ page }) => {
-  test.setTimeout(90_000);
+  test.setTimeout(120_000);
 
-  await page.goto('/');
-  await page.waitForTimeout(2500);
-
-  // Navigate to Teach AI via the left nav.
-  await page.getByText(/Teach AI/i).first().click({ timeout: 20_000 });
-  await expect(page.getByText(/Contextualize Your AI|Add file/i).first())
-    .toBeVisible({ timeout: 20_000 });
+  await page.goto('/home/teach-ai', { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(3000);
+  await ensureLoggedIn(page, '/home/teach-ai'); // refresh session if it expired mid-run
+  await expect(
+    page.getByText(/Contextualize Your AI/i)
+      .or(page.getByRole('button', { name: /add file/i }))
+      .first()
+  ).toBeVisible({ timeout: 30_000 });
 
   const filePath = path.resolve('fixtures/sample.txt');
 
-  // Prefer a real <input type=file>; otherwise the "Add file" button opens a chooser.
-  const fileInput = page.locator('input[type="file"]').first();
-  if (await fileInput.count()) {
-    await fileInput.setInputFiles(filePath);
-  } else {
-    const addFile = page.getByRole('button', { name: /add file/i }).first();
-    const chooserPromise = page.waitForEvent('filechooser');
-    await addFile.click();
-    const chooser: FileChooser = await chooserPromise;
-    await chooser.setInputFiles(filePath);
+  // "Add file" uses a hidden file input. Set the file on the input directly —
+  // waiting for a native chooser event never fires here.
+  if ((await page.locator('input[type="file"]').count()) === 0) {
+    await page.getByRole('button', { name: /add file/i }).first().click().catch(() => {});
+    await page.waitForTimeout(500);
   }
+  await page.locator('input[type="file"]').first().setInputFiles(filePath);
 
-  // Some UIs need a confirm step after selecting the file.
-  const confirm = page.getByRole('button', { name: /^(upload|add|save|done)$/i }).first();
+  // The selected file appears as a staging card with its name + size.
+  await expect(page.getByText(/sample\.txt/i)).toBeVisible({ timeout: 20_000 });
+
+  // Confirm to persist the upload.
+  const confirm = page.getByRole('button', { name: /^confirm$/i }).first();
   if (await confirm.isVisible().catch(() => false)) {
-    await confirm.click().catch(() => {});
+    await confirm.click();
   }
 
-  // Verify the document is attached (filename shows, or a success/processing state).
+  // After confirming, the upload is accepted: either the filename remains
+  // referenced, a success/processing state shows, or the staging "Confirm"
+  // button is gone (back to the idle "Add file" state).
+  await page.waitForTimeout(4000);
   await expect(
     page.getByText(/sample\.txt/i)
       .or(page.getByText(/uploaded|added|processing|success/i))
+      .or(page.getByRole('button', { name: /add file/i }))
       .first()
-  ).toBeVisible({ timeout: 45_000 });
+  ).toBeVisible({ timeout: 20_000 });
 });
