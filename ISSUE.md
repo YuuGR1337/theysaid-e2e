@@ -1,46 +1,64 @@
-# Bonus — Issue Report
+# Bonus Issue — Third-party ad/remarketing trackers fire on the survey page before consent
 
-> Fill the bracketed bits with what you actually observe during the session; the
-> structure below is report-ready. Pick the strongest one you can reproduce.
+**Severity:** Medium (privacy / compliance)
+**Area:** Public respondent survey — `https://evo.dev.theysaid.io/survey/project/<id>`
+**Type:** Privacy / data-protection (GDPR / ePrivacy consent), no auth required to observe
 
-## Candidate issues to check (high signal on a feedback/survey SaaS)
+## Summary
+The public survey page — the screen that explicitly tells a respondent *"We'll need
+to record your screen and your voice to capture your experience"* — loads and fires
+**third-party advertising / remarketing trackers immediately on page load, before the
+respondent consents to anything**. On a voice-and-screen feedback tool, shipping a
+DoubleClick **remarketing** pixel onto the respondent flow is a meaningful privacy /
+GDPR-ePrivacy problem (non-essential tracking requires prior consent in the EU/UK).
 
-1. **Survey accepts unlimited/automated responses (no rate-limit / no dedup).**
-   A published survey can be submitted repeatedly from the same browser with no
-   throttle or duplicate detection → results can be skewed by a script. *Impact:*
-   data integrity of the core product (feedback) is undermined.
-   *Repro:* publish a project, open the survey link, submit N times in a loop.
+## Evidence (captured, no auth)
+Loading `/survey/project/de8a7841-d582-43c0-8f89-8babf732a09d` and clicking
+**Continue** issues these POSTs (network capture):
 
-2. **Survey link authorization** — does the public survey URL leak project/owner
-   data, or is it guessable/enumerable (sequential IDs)? If another project's
-   survey is reachable by changing an ID → IDOR. *Impact:* cross-tenant exposure.
+```
+POST https://ad.doubleclick.net/ccm/s/collect?...                 # Google Ads conversion
+POST https://www.google.com/rmkt/collect/16645073876/?...&en=gtag.config   # REMARKETING tag
+POST https://www.google.com/ccm/collect?...&en=page_view&dl=.../survey/project/<id>
+POST https://events.theysaid.io/flags/?v=2&...                    # feature-flag beacon
+```
 
-3. **Teach AI upload validation** — does it accept oversized files, wrong types
-   (`.exe`, `.svg` with script), or empty files without error? Unbounded upload =
-   storage/cost abuse; SVG render = stored-XSS vector. *Impact:* abuse / XSS.
+- The page URL (containing the survey/project id) is sent to Google in `dl=`.
+- These fire **before** the respondent grants screen/voice permission
+  ("Waiting for permissions...") — i.e. before any meaningful consent step.
+- No cookie-consent / tracking-consent gate is presented first.
 
-4. **Project name / survey answer stored-XSS** — submit `<img src=x onerror=...>`
-   as a project name or free-text answer; check whether it renders unescaped in the
-   owner's dashboard. *Impact:* stored XSS in an authenticated/admin view.
+## Why it matters (business impact)
+- **Compliance exposure:** EU/UK ePrivacy + GDPR require prior, informed consent for
+  non-essential (advertising/remarketing) trackers. Firing them on a research page
+  that records voice + screen raises the risk profile sharply.
+- **Respondent trust:** participants in a "user test" don't expect to be added to an
+  ad-remarketing audience; the survey/project id leaks to Google in the page URL.
+- **Easy to miss:** it's invisible in normal QA (no functional break), which is why
+  it fits "an issue we couldn't think of."
 
-5. **Session not invalidated on logout** — capture `auth.json`, log out, replay the
-   saved session. If it still works → broken session lifecycle.
+## Reproduction
+1. Open `https://evo.dev.theysaid.io/survey/project/de8a7841-d582-43c0-8f89-8babf732a09d`
+   in a fresh browser (no auth), with the Network tab open.
+2. Observe `doubleclick.net/ccm/s/collect`, `google.com/rmkt/collect/...`, and
+   `google.com/ccm/collect?...page_view` requests on load / after **Continue** —
+   before any consent prompt.
+3. Note the survey/project id is included in the `dl=` (document location) parameter.
 
-## Selected issue (write up the one you confirmed)
+## Recommendation
+- Gate all non-essential (ads/remarketing/analytics) tags behind an explicit consent
+  step shown *before* they load, especially on the respondent survey surface.
+- Strip the survey/project id from URLs sent to third-party ad endpoints.
+- Consider a Consent Mode / CMP for EU/UK traffic.
 
-**Title:** [e.g. Published survey accepts unlimited duplicate submissions]
-
-**Severity:** [Medium/High]  ·  **Area:** [Survey response handling]
-
-**Steps to reproduce:**
-1.
-2.
-3.
-
-**Expected:** [e.g. rate-limit or dedup per respondent/session]
-
-**Actual:** [what happened — include the count / response]
-
-**Evidence:** [screenshot / response snippet — redact anything sensitive]
-
-**Impact:** [why it matters to the business — data integrity, abuse, XSS, exposure]
+---
+### Secondary hardening notes (lower severity, same surface)
+- **Security response headers absent** on the survey page: `X-Frame-Options`,
+  `Content-Security-Policy`, `X-Content-Type-Options` are all missing → the survey
+  is framable (clickjacking/UI-redress exposure).
+- **Survey-existence oracle:** a valid id renders "Welcome to the User Test!" while a
+  non-existent id renders "This Survey Link Has Expired" (HTTP 200 both) — lets an
+  unauthenticated visitor distinguish real vs fake survey ids. Low impact; note only.
+- Verified NON-issues (checked, not reportable): `/.env` returns the SPA shell (not a
+  real env leak — identical to any 404 path); `/api/*` endpoints correctly return 401;
+  survey ids are UUIDv4 (not enumerable by increment); no IDOR (invalid id leaks no data).
