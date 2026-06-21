@@ -67,12 +67,28 @@ test('publish a project and take its survey', async ({ page, context }) => {
 
   // Poll for the persisted project UUID (from the editor URL or captured
   // network traffic) — persistence + AI work can take a moment.
-  for (let i = 0; i < 30 && !projectId; i++) {
+  for (let i = 0; i < 12 && !projectId; i++) {
     const m = page.url().match(/\/projects\/([0-9a-f-]{36})/i);
     if (m) { projectId = m[1]; break; }
     await page.waitForTimeout(2000);
   }
+
+  // Fallback: the editor can stay on /projects/new even after the draft is
+  // persisted (the UUID only comes back in a GraphQL response). The project
+  // list is authoritative — open it and read the newest project's UUID.
+  if (!projectId) {
+    await page.goto('/projects', { waitUntil: 'domcontentloaded' });
+    const firstProjectLink = page.locator("a[href*='/projects/'][href*='tab=']").first();
+    await expect(firstProjectLink).toBeVisible({ timeout: 30_000 });
+    const href = (await firstProjectLink.getAttribute('href')) || '';
+    const m = href.match(/\/projects\/([0-9a-f-]{36})/i);
+    if (m) projectId = m[1];
+  }
   expect(projectId, 'could not determine project UUID').toBeTruthy();
+
+  // Open the project so its publish controls are in scope.
+  await page.goto(`/projects/${projectId}?tab=form`, { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(4000);
 
   // --- publish ---
   const publishBtn = page.getByRole('button', { name: /^publish$/i }).first();
