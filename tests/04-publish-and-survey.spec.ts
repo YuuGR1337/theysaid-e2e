@@ -51,21 +51,26 @@ test('publish a project and take its survey', async ({ page, context }) => {
   // optional "Draft project" modal that overlays the editor.
   await page.waitForURL(/\/projects\/(new|[0-9a-f-]{36}).*tab=form/i, { timeout: 120_000 });
 
-  // Skip the draft "learning goal" dialog if present (it appears after AI gen).
-  const skip = page.getByRole('button', { name: 'Skip', exact: true });
-  if (await skip.isVisible().catch(() => false)) {
-    await skip.click().catch(() => {});
-    await page.waitForTimeout(3000);
+  // The new project starts as a draft on /projects/new. The "Draft project"
+  // modal persists it (assigning a real UUID). Provide a learning goal and
+  // click "Draft project" to persist; fall back to "Skip" if the modal differs.
+  const goal = page.locator("textarea[placeholder*='learning goal' i], textarea[placeholder*='purpose' i]").first();
+  if (await goal.isVisible().catch(() => false)) {
+    await goal.fill('Mobile checkout ease of use and trust for beta users.');
+  }
+  const draftBtn = page.getByRole('button', { name: 'Draft project', exact: true }).last();
+  if (await draftBtn.isVisible().catch(() => false)) {
+    await draftBtn.click().catch(() => {});
+  } else {
+    await page.getByRole('button', { name: 'Skip', exact: true }).click().catch(() => {});
   }
 
-  // Make sure we have the project UUID (from URL or captured network traffic).
-  const um = page.url().match(/\/projects\/([0-9a-f-]{36})/i);
-  if (um) projectId = um[1];
-  // The editor may sit on /projects/new briefly; wait for the persisted URL.
-  if (!projectId) {
-    await page.waitForURL(/\/projects\/[0-9a-f-]{36}/i, { timeout: 30_000 }).catch(() => {});
-    const um2 = page.url().match(/\/projects\/([0-9a-f-]{36})/i);
-    if (um2) projectId = um2[1];
+  // Poll for the persisted project UUID (from the editor URL or captured
+  // network traffic) — persistence + AI work can take a moment.
+  for (let i = 0; i < 30 && !projectId; i++) {
+    const m = page.url().match(/\/projects\/([0-9a-f-]{36})/i);
+    if (m) { projectId = m[1]; break; }
+    await page.waitForTimeout(2000);
   }
   expect(projectId, 'could not determine project UUID').toBeTruthy();
 
