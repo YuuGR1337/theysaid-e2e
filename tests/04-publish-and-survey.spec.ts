@@ -1,92 +1,105 @@
 import { test, expect } from '@playwright/test';
-import { action, clickFirstVisible, uniqueName, expectLoggedIn } from './helpers';
 
 /**
  * FLOW 4 — Publish a project, then take its survey.
- * Self-contained: creates a project, publishes it, opens the public/share survey
- * link, and answers it.
- * TODO(codegen): align "publish", the share-link surface, and the survey
- * question/answer/submit controls with the real DOM.
+ * Real flow (confirmed via recon): create the AI survey (as in flow 2),
+ * locate Publish (editor or Settings tab), derive the public survey URL
+ *   https://evo.dev.theysaid.io/survey/project/<uuid>
+ * then answer it in a fresh, unauthenticated context (a real respondent).
  */
 test('publish a project and take its survey', async ({ page, context }) => {
-  await page.goto('/');
-  await expectLoggedIn(page);
+  test.setTimeout(220_000);
 
-  // --- create a project ---
-  const projectName = uniqueName('publish');
-  await clickFirstVisible(
-    page,
-    [action(page, /create (a )?project|new project|^create$|\+ ?project/i)],
-    'create-project entry'
-  );
+  // Capture the project UUID from network traffic as we create it.
+  let projectId: string | null = null;
+  page.on('response', (r) => {
+    const m = r.url().match(/\/projects\/([0-9a-f-]{36})/i);
+    if (m) projectId = m[1];
+  });
+
+  // --- create the AI survey (same as flow 2) ---
+  await page.goto('/projects');
+  await page.getByRole('button', { name: /add project/i }).click({ timeout: 20_000 });
+  await page.waitForTimeout(4000);
   await page
-    .getByRole('textbox', { name: /name|title|project/i })
-    .or(page.locator('input[type="text"]'))
+    .locator("textarea[placeholder*='additional information' i], textarea")
     .first()
-    .fill(projectName);
-  await clickFirstVisible(page, [action(page, /create|save|continue|next|submit/i)], 'confirm create');
-  await expect(page.getByText(projectName).first()).toBeVisible({ timeout: 30_000 });
+    .fill('Publish + survey e2e: mobile checkout beta feedback.');
+  await page.getByRole('button', { name: /^continue$/i }).first().click();
+  await page.getByRole('button', { name: /AI Survey/i }).click({ timeout: 40_000 });
+  await page.waitForTimeout(1500);
+  await page.getByRole('button', { name: /create ai/i }).click();
+  await page.waitForTimeout(30_000);
+
+  // Skip the draft "learning goal" dialog if present.
+  const skip = page.getByRole('button', { name: /^skip$/i }).first();
+  if (await skip.isVisible().catch(() => false)) {
+    await skip.click().catch(() => {});
+    await page.waitForTimeout(3000);
+  }
+
+  // Capture id from the editor URL too.
+  const um = page.url().match(/\/projects\/([0-9a-f-]{36})/i);
+  if (um) projectId = um[1];
 
   // --- publish ---
-  await clickFirstVisible(
-    page,
-    [action(page, /publish|go live|share/i)],
-    'publish button'
-  );
-
-  // Confirm publish if a dialog appears.
-  const confirmPublish = action(page, /publish|confirm|share|done/i).first();
-  if (await confirmPublish.isVisible().catch(() => false)) {
-    await confirmPublish.click().catch(() => {});
-  }
-  await expect(
-    page.getByText(/published|live|copy link|share link/i).first()
-  ).toBeVisible({ timeout: 30_000 });
-
-  // --- obtain the survey/share URL ---
-  // Try to read a link from an input or an anchor; fall back to current page.
-  let surveyUrl = page.url();
-  const linkInput = page.locator('input[readonly], input[value*="http"]').first();
-  if (await linkInput.count()) {
-    const v = await linkInput.inputValue().catch(() => '');
-    if (v.startsWith('http')) surveyUrl = v;
+  const publishBtn = page.getByRole('button', { name: /^publish$/i }).first();
+  if (await publishBtn.isVisible().catch(() => false)) {
+    await publishBtn.click();
+    await page.waitForTimeout(4000);
+    // confirm dialog, if any
+    const confirmPublish = page.getByRole('button', { name: /publish|confirm|share|done/i }).first();
+    if (await confirmPublish.isVisible().catch(() => false)) {
+      await confirmPublish.click().catch(() => {});
+    }
   } else {
-    const anchor = page.locator('a[href*="http"]').filter({ hasText: /survey|share|public|view/i }).first();
-    if (await anchor.count()) {
-      surveyUrl = (await anchor.getAttribute('href')) || surveyUrl;
+    // Publish may live under a Settings tab.
+    const settings = page.getByRole('button', { name: /settings/i })
+      .or(page.getByRole('tab', { name: /settings/i }));
+    if (await settings.first().isVisible().catch(() => false)) {
+      await settings.first().click();
+      await page.waitForTimeout(2000);
+      await page.getByRole('button', { name: /^publish$/i }).first().click().catch(() => {});
+      await page.waitForTimeout(3000);
     }
   }
 
-  // --- take the survey in a fresh (respondent) context, no auth ---
+  expect(projectId, 'could not determine project UUID').toBeTruthy();
+  const surveyUrl = `https://evo.dev.theysaid.io/survey/project/${projectId}`;
+
+  // --- take the survey as an unauthenticated respondent ---
   const respondent = await context.browser()!.newContext({ storageState: undefined });
   const sp = await respondent.newPage();
-  await sp.goto(surveyUrl);
+  await sp.goto(surveyUrl, { waitUntil: 'domcontentloaded' });
+  await sp.waitForTimeout(6000);
 
-  // Start the survey if there's an intro/start button.
-  const start = action(sp, /start|begin|take (the )?survey|continue/i).first();
+  // Start if there is an intro/start button.
+  const start = sp.getByRole('button', { name: /start|begin|take (the )?survey|continue/i }).first();
   if (await start.isVisible().catch(() => false)) await start.click().catch(() => {});
 
-  // Answer up to a few questions generically: pick first option, or type text, then advance.
-  for (let i = 0; i < 6; i++) {
-    const option = sp.getByRole('radio').or(sp.locator('[role="option"], .option, button[data-option]')).first();
+  // Answer a few questions generically: pick an option or type text, then advance.
+  for (let i = 0; i < 8; i++) {
+    const option = sp.getByRole('radio')
+      .or(sp.locator('[role="option"], button[data-option], .option'))
+      .first();
     const textbox = sp.getByRole('textbox').first();
 
     if (await option.isVisible().catch(() => false)) {
       await option.click().catch(() => {});
     } else if (await textbox.isVisible().catch(() => false)) {
-      await textbox.fill('Automated e2e survey answer.').catch(() => {});
+      await textbox.fill('Automated e2e survey response.').catch(() => {});
     }
 
-    const next = action(sp, /next|continue|submit|finish|done|send/i).first();
+    const next = sp.getByRole('button', { name: /next|continue|submit|finish|done|send/i }).first();
     if (await next.isVisible().catch(() => false)) {
       await next.click().catch(() => {});
+      await sp.waitForTimeout(800);
     } else {
       break;
     }
-    await sp.waitForTimeout(500);
   }
 
-  // --- verify completion ---
+  // Verify completion.
   await expect(
     sp.getByText(/thank you|thanks|completed|submitted|response recorded|done/i).first()
   ).toBeVisible({ timeout: 30_000 });

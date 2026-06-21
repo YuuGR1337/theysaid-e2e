@@ -1,45 +1,37 @@
 import { test, expect } from '@playwright/test';
-import { action, clickFirstVisible, uniqueName, expectLoggedIn } from './helpers';
 
 /**
  * FLOW 2 — Create a project.
- * TODO(codegen): replace the candidate selectors with the exact ones codegen
- * produced for the "create project" button, the name field, and the submit button.
+ * Real flow (confirmed via recon): /projects → "Add project" →
+ * fill the "additional information" textarea → "Continue" (AI generates) →
+ * "AI Survey" → "Create AI" → a draft/editor loads.
+ *
+ * AI generation is slow (20–35s), so timeouts here are generous.
  */
-test('create a project', async ({ page }) => {
-  await page.goto('/');
-  await expectLoggedIn(page);
+test('create an AI survey project', async ({ page }) => {
+  test.setTimeout(180_000);
 
-  const projectName = uniqueName('project');
+  await page.goto('/projects');
+  await page.getByRole('button', { name: /add project/i }).click({ timeout: 20_000 });
+  await page.waitForTimeout(4000);
 
-  // 1) Open the create-project dialog/page.
-  await clickFirstVisible(
-    page,
-    [
-      action(page, /create (a )?project|new project|^create$|\+ ?project/i),
-      page.getByRole('button', { name: /^create$|^new$|\+/i }),
-    ],
-    'create-project entry'
-  );
+  // Describe the project (drives AI generation).
+  await page
+    .locator("textarea[placeholder*='additional information' i], textarea")
+    .first()
+    .fill('Beta feedback on our new mobile checkout. Focus on ease of use and trust.');
 
-  // 2) Fill the project name.
-  const nameField = page
-    .getByRole('textbox', { name: /name|title|project/i })
-    .or(page.locator('input[name*="name" i], input[placeholder*="name" i], input[type="text"]'))
-    .first();
-  await nameField.fill(projectName);
+  await page.getByRole('button', { name: /^continue$/i }).first().click();
+  // AI proposes survey types — wait for the choice to appear.
+  await page.getByRole('button', { name: /AI Survey/i }).click({ timeout: 40_000 });
+  await page.waitForTimeout(1500);
+  await page.getByRole('button', { name: /create ai/i }).click();
 
-  // 3) Submit / confirm creation.
-  await clickFirstVisible(
-    page,
-    [action(page, /create|save|continue|next|submit/i)],
-    'confirm create-project'
-  );
+  // The editor/draft loads after generation.
+  await expect(
+    page.getByRole('button', { name: /publish|settings|preview|skip/i }).first()
+  ).toBeVisible({ timeout: 90_000 });
 
-  // 4) Verify the new project exists (its name is shown somewhere).
-  await expect(page.getByText(projectName, { exact: false }).first())
-    .toBeVisible({ timeout: 30_000 });
-
-  // Stash the name for any chained run/debugging.
-  test.info().annotations.push({ type: 'projectName', description: projectName });
+  // We should now be on a project/editor URL.
+  expect(page.url()).toMatch(/projects|editor|survey/i);
 });

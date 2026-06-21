@@ -1,21 +1,20 @@
 import { test, expect } from '@playwright/test';
-import { expectLoggedIn } from './helpers';
 
 /**
  * FLOW 1 — Login.
- * Auth itself is performed in auth.setup.ts (once). This test asserts that the
- * saved session is valid: loading the app lands us in an authenticated state,
- * not on the login screen.
+ * Auth runs in auth.setup.ts (once). This verifies the saved session is valid:
+ * loading the app lands in the authenticated dashboard, not the AuthKit sign-in.
  */
-test('login: saved session lands authenticated', async ({ page }) => {
+test('login: saved session lands in the authenticated app', async ({ page }) => {
   await page.goto('/');
+  await page.waitForTimeout(3000);
 
-  // We should NOT be looking at a login prompt.
-  const loginPrompt = page
-    .getByRole('button', { name: /^log ?in$|^sign ?in$/i })
-    .or(page.getByRole('link', { name: /^log ?in$|^sign ?in$/i }));
-  await expect(loginPrompt.first()).toBeHidden({ timeout: 15_000 }).catch(() => {});
+  // Not bounced to the AuthKit sign-in host.
+  expect(page.url()).not.toContain('authkit.app');
 
-  // And we SHOULD see authenticated app chrome.
-  await expectLoggedIn(page);
+  // Authenticated left-nav is visible.
+  await expect(
+    page.getByText(/AI Projects/i).first()
+  ).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText(/Teach AI/i).first()).toBeVisible();
 });
