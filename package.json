@@ -1,0 +1,20 @@
+{
+  "name": "theysaid-e2e",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "report": "playwright show-report",
+    "codegen": "playwright codegen --load-storage=auth.json https://evo.dev.theysaid.io/",
+    "auth": "playwright codegen --save-storage=auth.json https://evo.dev.theysaid.io/"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "devDependencies": {
+    "@playwright/test": "^1.61.0",
+    "typescript": "^6.0.3"
+  }
+}

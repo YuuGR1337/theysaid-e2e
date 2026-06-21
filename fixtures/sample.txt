@@ -1,0 +1,3 @@
+TheySaid E2E sample document.
+This file is uploaded by the Teach AI automated test.
+Lorem ipsum knowledge content for the AI to learn from.

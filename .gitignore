@@ -1,0 +1,7 @@
+node_modules/
+auth.json
+.env
+playwright-report/
+test-results/
+blob-report/
+*.zip
