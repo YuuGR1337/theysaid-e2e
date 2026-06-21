@@ -34,7 +34,9 @@ test('Teach AI: upload a document', async ({ page }) => {
   await page.locator('input[type="file"]').first().setInputFiles(filePath);
 
   // The selected file appears as a staging card with its name + size.
-  await expect(page.getByText(/sample\.txt/i)).toBeVisible({ timeout: 20_000 });
+  // (Use .first() — after a prior run the name can appear both in the staging
+  // card and in the persisted list, which would trip strict-mode matching.)
+  await expect(page.getByText(/sample\.txt/i).first()).toBeVisible({ timeout: 20_000 });
 
   // Confirm to persist the upload.
   const confirm = page.getByRole('button', { name: /^confirm$/i }).first();
