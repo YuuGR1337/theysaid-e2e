@@ -46,10 +46,10 @@ test('publish a project and take its survey', async ({ page, context }) => {
   await page.waitForTimeout(1500);
   await page.getByRole('button', { name: /create ai/i }).click();
 
-  // Wait for the editor (its heading) to confirm the project was created.
-  await expect(
-    page.getByRole('heading', { name: /AI Survey/i }).first()
-  ).toBeVisible({ timeout: 120_000 });
+  // Wait for the editor URL to confirm the project was created (the "Form"
+  // survey editor). This is the definitive signal and isn't blocked by the
+  // optional "Draft project" modal that overlays the editor.
+  await page.waitForURL(/\/projects\/(new|[0-9a-f-]{36}).*tab=form/i, { timeout: 120_000 });
 
   // Skip the draft "learning goal" dialog if present (it appears after AI gen).
   const skip = page.getByRole('button', { name: 'Skip', exact: true });
