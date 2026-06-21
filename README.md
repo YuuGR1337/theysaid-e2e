@@ -3,10 +3,10 @@
 Automated end-to-end tests for **https://evo.dev.theysaid.io/** built with
 [Playwright](https://playwright.dev) (TypeScript). Covers four core flows:
 
-1. **Login** — session reuse (no OTP re-entry)
-2. **Create a project**
+1. **Login** — email + password via WorkOS AuthKit; session saved and reused
+2. **Create a project** — AI Survey, created from the project-type chooser
 3. **Teach AI** — upload a document
-4. **Publish a project + take its survey**
+4. **Publish a project + take its survey** (the survey is taken as a public respondent)
 
 Account **sign-up** is intentionally **not** automated (it requires a one-time code
 emailed by WorkOS), per the assessment instructions. Signing **in** is email +
@@ -30,7 +30,7 @@ password and is fully automated by `tests/auth.setup.ts`.
 | Piece | Purpose |
 |---|---|
 | `tests/auth.setup.ts` | Logs in once, saves the session to `auth.json` (a Playwright *setup project*). |
-| `playwright.config.ts` | Reuses `auth.json` via `storageState`; runs up to **4 parallel workers**. |
+| `playwright.config.ts` | Reuses `auth.json` via `storageState`; 1 worker by default, `WORKERS=4` to parallelize (see note below). |
 | `tests/01..04` | One spec per flow; each is self-contained. |
 | `tests/helpers.ts` | Resilient role/text selector helpers. |
 | `fixtures/sample.txt` | Document uploaded by the Teach AI test. |
@@ -65,25 +65,27 @@ to `auth.json`. Every other spec reuses it. No manual step is needed.
 ## Run
 
 ```bash
-npm test            # headless, 4 workers
-npm run test:headed # watch it run
-npm run report      # open the HTML report
+npm test                 # headless, 1 worker (steady on a single account)
+WORKERS=4 npm test       # 4 parallel workers (best with 4 separate accounts)
+npm run test:headed      # watch it run
+npm run report           # open the HTML report
 ```
 
-## Refining selectors (important)
-
-The selectors are deliberately resilient (role/text/placeholder with fallbacks) so
-the suite runs without hand-tuning. Where the live DOM differs, record the exact
-locators and drop them in — search the specs for `TODO(codegen)`:
-
-```bash
-npm run codegen   # opens the app already logged in; click a flow, copy the locators
-```
+All selectors were derived from the live DOM (AuthKit sign-in, the project-type
+chooser, the Teach AI hidden file input, the public survey), so the suite runs
+against the real app without hand-tuning. To explore interactively with a
+logged-in session: `npm run codegen`.
 
 ## Notes / assumptions
 - `auth.json`, `.env`, reports, and `test-results/` are gitignored.
-- Tests create uniquely-named projects (`*-<timestamp>`) so reruns don't collide.
-- The survey is taken in a fresh, unauthenticated browser context (as a real respondent).
+- The app auto-generates project titles (`AI Survey <timestamp>`), so reruns
+  don't collide; the publish/survey spec resolves the project UUID from the
+  project list when the editor stays on `/projects/new`.
+- The survey is taken in a fresh, unauthenticated browser context (a real respondent).
+- WorkOS uses a single active session per account; running `npm test` with many
+  parallel workers on **one** account can churn the session. The suite re-auths
+  inline (`ensureLoggedIn`), but for the steadiest run use `--workers=1` or give
+  each worker its own account.
 
 ## Bonus issue
 See [`ISSUE.md`](./ISSUE.md).

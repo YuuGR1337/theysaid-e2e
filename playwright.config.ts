@@ -3,14 +3,19 @@ import 'dotenv/config'; // load THEYSAID_EMAIL / THEYSAID_PASSWORD from .env
 
 /**
  * E2E config for TheySaid (evo.dev.theysaid.io).
- * Auth is reused via storageState (auth.json) so each test starts logged in
- * and we never re-enter the email OTP.
+ * The `setup` project logs in once (email + password via WorkOS AuthKit) and
+ * saves the session to auth.json; every test reuses it via storageState, so we
+ * sign in only once per run.
  */
 export default defineConfig({
   testDir: './tests',
-  // up to 4 parallel threads, as the assessment allows
-  workers: 4,
-  fullyParallel: true,
+  // WorkOS enforces a single active session per account, so parallel workers
+  // sharing ONE test account churn each other's session and cause flakes.
+  // Default to 1 worker for a steady run on a single account; set WORKERS=4
+  // (with 4 separate accounts, ideally) to use the full parallelism the
+  // assessment allows. Defaults: 1 worker, parallel disabled.
+  workers: Number(process.env.WORKERS) || 1,
+  fullyParallel: !!process.env.WORKERS,
   // Flows wait on server-side AI generation (20–35s) and AuthKit redirects,
   // so per-test timeouts are generous. Individual specs raise their own via
   // test.setTimeout where needed.
