@@ -22,8 +22,7 @@ password and is fully automated by `tests/auth.setup.ts`.
 > mid-run. Account sign-up (the email code) is never automated.
 
 ## 🎥 Session recording
-<!-- REPLACE the link below with your Google Drive URL, shared as "Anyone with the link". -->
-**Recording:** _TODO — paste Google Drive link here (set sharing to "Anyone with the link")_
+**Recording:** https://drive.google.com/file/d/1jifgCzrFojM51FjUkD6Hfrs0BNeg318W/view?usp=sharing
 
 ## Architecture
 
